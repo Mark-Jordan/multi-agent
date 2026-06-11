@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+import threading
 
 from .config import AgentConfig, CredentialProfile, RuntimeConfig
 
@@ -19,6 +21,9 @@ class ExecutorRequest:
     dry_run: bool = False
     timeout_seconds: int = 3600
     credential_name: str | None = None
+    stream_output: bool = False
+    last_message_path: Path | None = None
+    prompt_mode: str = "context"
 
 
 @dataclass(frozen=True)
@@ -101,7 +106,8 @@ class CodingExecutor:
                     credential_name=credential_name,
                     attempts=attempts,
                 )
-            if shutil.which(request.runtime.command) is None:
+            resolved_command = shutil.which(request.runtime.command)
+            if resolved_command is None:
                 return ExecutorResult(
                     False,
                     command,
@@ -111,15 +117,54 @@ class CodingExecutor:
                     credential_name=credential_name,
                     attempts=attempts,
                 )
-            completed = subprocess.run(
-                command,
-                cwd=request.workdir,
-                env=self.build_env(request, credential),
-                capture_output=True,
-                text=True,
-                timeout=request.timeout_seconds,
-                check=False,
-            )
+            command = [resolved_command, *command[1:]]
+            try:
+                if request.stream_output:
+                    completed = run_process_streaming(
+                        command,
+                        cwd=request.workdir,
+                        env=self.build_env(request, credential),
+                        timeout_seconds=request.timeout_seconds,
+                    )
+                else:
+                    completed = subprocess.run(
+                        command,
+                        cwd=request.workdir,
+                        env=self.build_env(request, credential),
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=request.timeout_seconds,
+                        check=False,
+                    )
+            except FileNotFoundError as exc:
+                return ExecutorResult(
+                    False,
+                    command,
+                    "",
+                    (
+                        "runtime command could not be started: "
+                        f"{request.runtime.command} ({exc})"
+                    ),
+                    None,
+                    credential_name=credential_name,
+                    attempts=attempts,
+                )
+            except OSError as exc:
+                return ExecutorResult(
+                    False,
+                    command,
+                    "",
+                    (
+                        "runtime command could not be started: "
+                        f"{request.runtime.command} ({exc})"
+                    ),
+                    None,
+                    credential_name=credential_name,
+                    attempts=attempts,
+                )
             result = ExecutorResult(
                 completed.returncode == 0,
                 command,
@@ -151,6 +196,66 @@ class CodingExecutor:
         )
 
 
+def run_process_streaming(
+    command: list[str],
+    cwd: Path,
+    env: dict[str, str],
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+
+    def read_stream(pipe, sink, writer) -> None:
+        try:
+            for chunk in iter(pipe.readline, ""):
+                sink.append(chunk)
+                writer.write(chunk)
+                writer.flush()
+        finally:
+            pipe.close()
+
+    stdout_thread = threading.Thread(
+        target=read_stream,
+        args=(process.stdout, stdout_parts, sys.stdout),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=read_stream,
+        args=(process.stderr, stderr_parts, sys.stderr),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    try:
+        returncode = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        returncode = process.wait()
+        stderr_parts.append(f"\nprocess timed out after {timeout_seconds} seconds\n")
+        sys.stderr.write(stderr_parts[-1])
+        sys.stderr.flush()
+    stdout_thread.join(timeout=1)
+    stderr_thread.join(timeout=1)
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        stdout="".join(stdout_parts),
+        stderr="".join(stderr_parts),
+    )
+
+
 def _context_prompt(task: str, context_files: list[Path]) -> str:
     files = "\n".join(f"- {path}" for path in context_files)
     return (
@@ -159,6 +264,12 @@ def _context_prompt(task: str, context_files: list[Path]) -> str:
         f"Context files:\n{files}\n\n"
         f"Task:\n{task}"
     )
+
+
+def _runtime_prompt(task: str, context_files: list[Path], prompt_mode: str) -> str:
+    if prompt_mode == "task":
+        return task
+    return _context_prompt(task, context_files)
 
 
 class OpenCodeExecutor(CodingExecutor):
@@ -181,7 +292,9 @@ class OpenCodeExecutor(CodingExecutor):
             command.extend(["--model", request.agent.model])
         for path in request.context_files:
             command.extend(["--file", str(path)])
-        command.append(_context_prompt(request.task, request.context_files))
+        command.append(
+            _runtime_prompt(request.task, request.context_files, request.prompt_mode)
+        )
         return command
 
 
@@ -224,7 +337,11 @@ class CodexExecutor(CodingExecutor):
             )
         if request.agent.model:
             command.extend(["--model", request.agent.model])
-        command.append(_context_prompt(request.task, request.context_files))
+        if request.last_message_path:
+            command.extend(["--output-last-message", str(request.last_message_path)])
+        command.append(
+            _runtime_prompt(request.task, request.context_files, request.prompt_mode)
+        )
         return command
 
     def build_env(
@@ -258,7 +375,9 @@ class ClaudeCodeExecutor(CodingExecutor):
         ]
         if request.agent.model:
             command.extend(["--model", request.agent.model])
-        command.append(_context_prompt(request.task, request.context_files))
+        command.append(
+            _runtime_prompt(request.task, request.context_files, request.prompt_mode)
+        )
         return command
 
     def build_env(

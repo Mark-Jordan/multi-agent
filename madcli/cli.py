@@ -71,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Credential profile name for the selected runtime. Defaults to trying profiles in config order.",
     )
+    run_parser.add_argument(
+        "--prompt-mode",
+        choices=["context", "task"],
+        default="context",
+        help="Use context handoff prompt or send the task text directly to the runtime.",
+    )
 
     status_parser = subparsers.add_parser("status", help="List recent runs.")
     status_parser.add_argument("--limit", type=int, default=20)
@@ -209,6 +215,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
 
     executor = executor_for(agent.runtime)
+    outputs_dir = store.run_dir(run_id) / "outputs"
+    last_message_path = outputs_dir / "last_message.txt"
     request = ExecutorRequest(
         runtime=runtime,
         agent=effective_agent,
@@ -217,6 +225,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         context_files=[path.resolve() for path in context_files],
         dry_run=args.dry_run,
         credential_name=credential_name,
+        stream_output=not args.dry_run,
+        last_message_path=last_message_path,
+        prompt_mode=args.prompt_mode,
     )
     try:
         result = executor.run(request)
@@ -224,7 +235,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         store.update_status(run_id, "failed")
         return 1
-    outputs_dir = store.run_dir(run_id) / "outputs"
     (outputs_dir / "command.json").write_text(
         json.dumps(result.command, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",

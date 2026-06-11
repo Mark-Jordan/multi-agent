@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import io
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from madcli.config import CredentialProfile, RuntimeConfig, default_config
-from madcli.executors import ExecutorRequest, executor_for
+from madcli.executors import ExecutorRequest, executor_for, run_process_streaming
 
 
 class ExecutorTests(unittest.TestCase):
@@ -33,6 +38,28 @@ class ExecutorTests(unittest.TestCase):
         command = executor_for("codex").build_command(request)
         self.assertEqual(command[0:3], ["codex", "exec", "--cd"])
         self.assertIn("--model", command)
+
+    def test_codex_task_prompt_mode_sends_plain_user_text(self) -> None:
+        config = default_config()
+        agent = config.agents["codex_reviewer"]
+        runtime = RuntimeConfig("codex", "codex", [])
+        request = ExecutorRequest(
+            runtime=runtime,
+            agent=agent,
+            task="hi",
+            workdir=Path("."),
+            context_files=[Path("context/engineering_task.md")],
+            dry_run=True,
+            prompt_mode="task",
+            last_message_path=Path("outputs/last_message.txt"),
+        )
+
+        command = executor_for("codex").build_command(request)
+
+        self.assertEqual(command[-1], "hi")
+        self.assertNotIn("Read the listed context files", command[-1])
+        self.assertIn("--output-last-message", command)
+        self.assertIn(str(Path("outputs/last_message.txt")), command)
 
     def test_claude_code_command_builder(self) -> None:
         request = self.request_for("claude_engineer")
@@ -128,6 +155,91 @@ class ExecutorTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "no credential named 'backup'"):
             executor_for("codex").run(request)
+
+    def test_run_uses_resolved_runtime_command_path(self) -> None:
+        config = default_config()
+        agent = config.agents["codex_reviewer"]
+        runtime = RuntimeConfig("codex", "codex", [])
+        request = ExecutorRequest(
+            runtime=runtime,
+            agent=agent,
+            task="Review task",
+            workdir=Path("."),
+            context_files=[Path("context/engineering_task.md")],
+            dry_run=False,
+        )
+        captured_command: list[str] = []
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_run(command: list[str], **_kwargs: object):
+            nonlocal captured_command
+            nonlocal captured_kwargs
+            captured_command = command
+            captured_kwargs = _kwargs
+            return type(
+                "Completed",
+                (),
+                {"returncode": 0, "stdout": "ok", "stderr": ""},
+            )()
+
+        with patch("madcli.executors.shutil.which", return_value=r"C:\Tools\codex.cmd"):
+            with patch("madcli.executors.subprocess.run", side_effect=fake_run):
+                result = executor_for("codex").run(request)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(captured_command[0], r"C:\Tools\codex.cmd")
+        self.assertEqual(result.command[0], r"C:\Tools\codex.cmd")
+        self.assertIs(captured_kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_run_reports_missing_runtime_when_process_launch_fails(self) -> None:
+        config = default_config()
+        agent = config.agents["codex_reviewer"]
+        runtime = RuntimeConfig("codex", "codex", [])
+        request = ExecutorRequest(
+            runtime=runtime,
+            agent=agent,
+            task="Review task",
+            workdir=Path("."),
+            context_files=[Path("context/engineering_task.md")],
+            dry_run=False,
+        )
+
+        with patch("madcli.executors.shutil.which", return_value=r"C:\Tools\codex.cmd"):
+            with patch(
+                "madcli.executors.subprocess.run",
+                side_effect=FileNotFoundError("missing executable"),
+            ):
+                result = executor_for("codex").run(request)
+
+        self.assertFalse(result.ok)
+        self.assertIn("runtime command could not be started", result.stderr)
+        self.assertEqual(result.command[0], r"C:\Tools\codex.cmd")
+
+    def test_streaming_output_decodes_utf8_without_thread_crash(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.buffer.write('标准输出\\n'.encode('utf-8')); "
+                "sys.stdout.flush(); "
+                "sys.stderr.buffer.write('错误输出\\n'.encode('utf-8')); "
+                "sys.stderr.flush()"
+            ),
+        ]
+
+        with patch("madcli.executors.sys.stdout", new=io.StringIO()):
+            with patch("madcli.executors.sys.stderr", new=io.StringIO()):
+                result = run_process_streaming(
+                    command,
+                    cwd=Path("."),
+                    env=os.environ.copy(),
+                    timeout_seconds=10,
+                )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("标准输出", result.stdout)
+        self.assertIn("错误输出", result.stderr)
 
 
 if __name__ == "__main__":
