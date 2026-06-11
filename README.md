@@ -24,13 +24,16 @@ Implemented:
 - Ordered fallback credentials for Codex and Claude Code execution.
 - Durable run storage under `.madcli/runs/<run-id>/`.
 - Context package generation for each task.
+- Existing markdown context files can be attached with repeatable `--context-file`.
+- Agent configs can store active credential/model selections so the next run uses changed URL, API key source, and model without restarting.
+- Desktop app skeleton under `apps/desktop` with sessions, Codex-like messages, multi-agent labels, project files, and a hidden code editor drawer.
 - Commands: `init`, `doctor`, `run`, `status`, `logs`, `credentials`.
-- Unit tests for config, context package generation, run storage, and executor command construction.
+- Unit tests for config, context package generation, run storage, project files, sessions, CLI behavior, and executor command construction.
 
 Not implemented yet:
 
 - CrewAI integration.
-- Web UI.
+- Fully wired desktop backend API and streaming execution.
 - Backtest tools.
 - Parallel engineer coordination.
 - Git worktree isolation.
@@ -238,6 +241,7 @@ Each `run` creates:
     agent_context.md
     engineering_task.md
     extra_context.md        # only when --context is provided
+    context_file_1_*.md     # copied files from --context-file
   outputs/
     command.json
     attempts.json
@@ -300,6 +304,14 @@ Add short extra context:
 python -m madcli run "task text" --agent strategy_engineer --context "Use daily bars and include transaction costs."
 ```
 
+Attach an existing markdown context file:
+
+```bash
+python -m madcli run "task text" --agent strategy_engineer --context-file docs\research_state.md
+```
+
+Repeat `--context-file` to attach multiple files. `madcli` copies each file into the run context package so the run keeps a durable snapshot.
+
 List runs:
 
 ```bash
@@ -322,6 +334,43 @@ The first version uses CLI wrappers:
 
 The wrappers build argument arrays rather than shell strings. Missing runtime commands are reported as runtime errors. Credential API keys are injected through subprocess environment variables, not shell arguments.
 
+## Desktop App
+
+The desktop application scaffold lives in `apps/desktop`.
+
+```bash
+cd apps/desktop
+npm install
+npm run dev
+```
+
+Build the desktop app and create a Windows executable:
+
+```bash
+npm run build
+npm run dist:win
+```
+
+The generated executable is:
+
+```text
+apps/desktop/release/madcli-workbench-win-x64/madcli-workbench.exe
+```
+
+Double-click `madcli-workbench.exe` to open the application window. Keep the generated directory together with the `.exe`; it contains the Electron runtime files required by the app.
+
+The current shell is an Electron/React workbench with:
+
+- Session list and Codex-like conversation stream.
+- Distinct visual identity for `strategy_engineer`, `codex_reviewer`, and `claude_engineer`.
+- Agent, model, and credential profile controls.
+- Project file panel and run artifact list.
+- Code editor drawer hidden by default and expandable from the composer.
+- Startup setup panel for missing model API profiles.
+- In-app runtime installation prompts for Codex, Claude Code, or OpenCode. Install commands require user confirmation before running.
+
+Credential/profile changes are persisted in config as active agent selections. `madcli run` reloads config per invocation, so changed base URLs, API key sources, and model selections apply to the next run without restarting the app.
+
 ## Verification
 
 Run all tests:
@@ -333,7 +382,7 @@ python -m unittest discover -s tests -v
 Expected result:
 
 ```text
-Ran 15 tests
+Ran 30 tests
 OK
 ```
 
@@ -341,11 +390,11 @@ OK
 
 Planned next steps:
 
-1. Add `--context-file` so users and manager agents can attach existing markdown files.
-2. Add stronger credential failure classification per runtime instead of the current broad stderr/stdout marker matching.
-3. Add explicit git worktree isolation for coding runs.
-4. Add structured `result.json` output parsing for each runtime.
-5. Add a CrewAI tool that calls `madcli run` and reads run artifacts.
-6. Add backtest and experiment registry tools for quant research workflows.
-7. Add a lightweight API and web UI after the CLI workflow is stable.
+1. Add stronger credential failure classification per runtime instead of the current broad stderr/stdout marker matching.
+2. Add explicit git worktree isolation for coding runs.
+3. Add structured `result.json` output parsing for each runtime.
+4. Add a CrewAI tool that calls `madcli run` and reads run artifacts.
+5. Add backtest and experiment registry tools for quant research workflows.
+6. Wire the desktop UI to a local API and WebSocket run streaming.
+7. Add a lightweight browser-hosted web UI after desktop workflows stabilize.
 8. Replace CLI wrappers with runtime SDKs where that gives better streaming, cancellation, and structured events.

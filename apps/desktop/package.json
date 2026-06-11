@@ -1,0 +1,46 @@
+{
+  "name": "madcli-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "start": "electron .",
+    "dist:win": "npm run build && node scripts/package-win-offline.cjs",
+    "dist:win:portable": "npm run build && electron-builder --win portable --x64"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "electron": "^37.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.7.0",
+    "vite": "^5.4.19"
+  },
+  "build": {
+    "appId": "dev.madcli.workbench",
+    "productName": "madcli Workbench",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "madcli-workbench-${version}-windows-${arch}.${ext}"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
 import shutil
@@ -53,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--context",
         default=None,
         help="Extra context text to write into the run context package.",
+    )
+    run_parser.add_argument(
+        "--context-file",
+        action="append",
+        default=[],
+        help="Markdown context file to copy into the run context package. Can be repeated.",
     )
     run_parser.add_argument(
         "--dry-run",
@@ -166,7 +173,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"unknown agent: {args.agent}", file=sys.stderr)
         print(f"available agents: {', '.join(sorted(config.agents))}", file=sys.stderr)
         return 1
+    extra_context_files = [Path(path) for path in args.context_file]
+    for path in extra_context_files:
+        if not path.is_file():
+            print(f"context file not found: {path}", file=sys.stderr)
+            return 1
     agent = config.agents[args.agent]
+    effective_agent = (
+        replace(agent, model=agent.active_model) if agent.active_model else agent
+    )
+    credential_name = args.credential or agent.active_credential
     runtime = config.runtimes[agent.runtime]
     workdir = Path(args.workdir) if args.workdir else config.default_workdir
     workdir = workdir.resolve()
@@ -182,8 +198,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     context_files = write_context_package(
         context_dir=store.run_dir(run_id) / "context",
         task=args.task,
-        agent=agent,
+        agent=effective_agent,
         extra_context=args.context,
+        extra_context_files=extra_context_files,
     )
     store.append_event(
         run_id,
@@ -194,12 +211,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     executor = executor_for(agent.runtime)
     request = ExecutorRequest(
         runtime=runtime,
-        agent=agent,
+        agent=effective_agent,
         task=args.task,
         workdir=workdir,
         context_files=[path.resolve() for path in context_files],
         dry_run=args.dry_run,
-        credential_name=args.credential,
+        credential_name=credential_name,
     )
     try:
         result = executor.run(request)

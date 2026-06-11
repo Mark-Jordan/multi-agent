@@ -22,6 +22,7 @@ def write_context_package(
     task: str,
     agent: AgentConfig,
     extra_context: str | None = None,
+    extra_context_files: list[Path] | None = None,
 ) -> list[Path]:
     context_dir.mkdir(parents=True, exist_ok=True)
     files = {
@@ -52,5 +53,14 @@ def write_context_package(
     for filename, content in files.items():
         path = context_dir / filename
         path.write_text(content, encoding="utf-8")
+        written.append(path)
+    for index, source in enumerate(extra_context_files or [], start=1):
+        resolved_source = source.resolve()
+        path = context_dir / f"context_file_{index}_{source.name}"
+        content = resolved_source.read_text(encoding="utf-8")
+        path.write_text(
+            f"# Context File {index}\n\nSource: `{resolved_source}`\n\n{content}",
+            encoding="utf-8",
+        )
         written.append(path)
     return written

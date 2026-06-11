@@ -35,6 +35,28 @@ class ContextTests(unittest.TestCase):
             )
             self.assertIn("Build a strategy", (Path(tmp) / "user_goal.md").read_text())
 
+    def test_write_context_package_copies_context_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "research_notes.md"
+            source.write_text("# Research Notes\n\nUse 5 minute bars.\n", encoding="utf-8")
+            context_dir = root / "run" / "context"
+            agent = default_config().agents["strategy_engineer"]
+
+            paths = write_context_package(
+                context_dir=context_dir,
+                task="Build a strategy",
+                agent=agent,
+                extra_context_files=[source],
+            )
+
+            copied = context_dir / "context_file_1_research_notes.md"
+            self.assertIn(copied, paths)
+            self.assertTrue(copied.exists())
+            copied_text = copied.read_text(encoding="utf-8")
+            self.assertIn(f"Source: `{source.resolve()}`", copied_text)
+            self.assertIn("Use 5 minute bars.", copied_text)
+
     def test_run_store_persists_metadata_and_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = RunStore(Path(tmp))

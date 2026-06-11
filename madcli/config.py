@@ -31,6 +31,8 @@ class AgentConfig:
     agent: str
     model: str | None
     description: str
+    active_model: str | None = None
+    active_credential: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,8 @@ def default_config() -> AppConfig:
                 agent="engineer",
                 model="anthropic/claude-sonnet-4-20250514",
                 description="Implements strategy code using the selected coding runtime.",
+                active_model=None,
+                active_credential=None,
             ),
             "codex_reviewer": AgentConfig(
                 name="codex_reviewer",
@@ -68,6 +72,8 @@ def default_config() -> AppConfig:
                 agent="reviewer",
                 model="gpt-5-codex",
                 description="Reviews diffs and implementation reports.",
+                active_model=None,
+                active_credential=None,
             ),
             "claude_engineer": AgentConfig(
                 name="claude_engineer",
@@ -75,6 +81,8 @@ def default_config() -> AppConfig:
                 agent="strategy-engineer",
                 model="sonnet",
                 description="Implements code through Claude Code.",
+                active_model=None,
+                active_credential=None,
             ),
         },
     )
@@ -109,6 +117,16 @@ def app_config_to_dict(config: AppConfig) -> dict[str, Any]:
                 "agent": agent.agent,
                 "model": agent.model,
                 "description": agent.description,
+                **(
+                    {"active_model": agent.active_model}
+                    if agent.active_model is not None
+                    else {}
+                ),
+                **(
+                    {"active_credential": agent.active_credential}
+                    if agent.active_credential is not None
+                    else {}
+                ),
             }
             for name, agent in config.agents.items()
         },
@@ -139,6 +157,8 @@ def app_config_from_dict(data: dict[str, Any]) -> AppConfig:
             agent=str(value.get("agent", name)),
             model=value.get("model"),
             description=str(value.get("description", "")),
+            active_model=value.get("active_model"),
+            active_credential=value.get("active_credential"),
         )
         for name, value in data.get("agents", {}).items()
     }

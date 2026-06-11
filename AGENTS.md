@@ -27,12 +27,15 @@ The current implemented task is the first CLI mode:
 - Configure logical agents that map to one of those runtimes.
 - Configure runtime credential profiles as API key and base URL pairs.
 - Create run directories and context packages.
+- Attach existing markdown files to context packages with `--context-file`.
+- Store active agent credential/model selections so URL, API key source, and model switches apply on the next run without restarting the app.
+- Provide an Electron/React desktop app skeleton for sessions, conversations, multi-agent labels, project files, startup setup, runtime install prompts, and a hidden code editor drawer.
 - Build runtime-specific commands.
 - Try ordered fallback credentials for Codex and Claude Code when auth, quota, or rate-limit style failures occur.
 - Support dry-run and basic execution.
 - List status and logs.
 
-The current implementation intentionally does not include CrewAI, a web UI, direct model APIs, or backtest integration.
+The current implementation intentionally does not include CrewAI, a fully wired desktop backend API, direct model APIs, or backtest integration.
 
 ## Current Status
 
@@ -54,8 +57,12 @@ Implemented files:
 - `madcli/cli.py`: command-line interface and command handlers.
 - `madcli/config.py`: JSON config model, default config, validation, load/save.
 - `madcli/context.py`: run id generation and context package writing.
+- `madcli/session_store.py`: durable JSON session and message storage for the desktop app.
+- `madcli/project_files.py`: project file listing and safe file reads for the desktop app.
 - `madcli/executors.py`: `opencode`, `codex`, and `claude_code` executor wrappers.
 - `madcli/run_store.py`: run metadata, event log, status listing.
+- `apps/desktop/`: Electron/React desktop application scaffold.
+- `apps/desktop/release/madcli-workbench-win-x64/madcli-workbench.exe`: generated local Windows executable after `npm run dist:win`; ignored by git.
 - `tests/`: unit tests for config, context, run store, and executors.
 - `README.md`: user-facing usage manual.
 - `AGENTS.md`: durable project context and planning file for future coding agents.
@@ -70,7 +77,7 @@ python -m unittest discover -s tests -v
 Expected result:
 
 ```text
-Ran 15 tests
+Ran 30 tests
 OK
 ```
 
@@ -148,6 +155,12 @@ If the user provides `--context`, also create:
 context/extra_context.md
 ```
 
+If the user provides `--context-file`, copy each source file into:
+
+```text
+context/context_file_<n>_<source-name>.md
+```
+
 Future CrewAI integration should write richer context files before calling a coding runtime. Examples:
 
 - `research_state.md`
@@ -161,13 +174,13 @@ Future CrewAI integration should write richer context files before calling a cod
 
 Near-term planned work:
 
-1. Add `--context-file` so users and manager agents can attach existing markdown files.
-2. Add stronger credential failure classification per runtime.
-3. Add git worktree isolation for real coding runs.
-4. Add structured runtime result parsing.
-5. Add a CrewAI tool wrapper around `madcli run`.
-6. Add quant research helpers: experiment registry, backtest command wrapper, and metrics artifact capture.
-7. Add a FastAPI service and web UI only after CLI workflows are stable.
+1. Add stronger credential failure classification per runtime.
+2. Add git worktree isolation for real coding runs.
+3. Add structured runtime result parsing.
+4. Add a CrewAI tool wrapper around `madcli run`.
+5. Add quant research helpers: experiment registry, backtest command wrapper, and metrics artifact capture.
+6. Wire the desktop app to a local API and WebSocket run streaming.
+7. Add a FastAPI service and browser-hosted web UI only after desktop workflows are stable.
 
 ## Development Guidance
 

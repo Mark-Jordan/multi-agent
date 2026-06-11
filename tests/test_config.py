@@ -9,6 +9,8 @@ from madcli.config import (
     AppConfig,
     CredentialProfile,
     RuntimeConfig,
+    app_config_from_dict,
+    app_config_to_dict,
     default_config,
     load_config,
     save_config,
@@ -105,6 +107,53 @@ class ConfigTests(unittest.TestCase):
         self.assertIn(
             "runtime 'codex' credential 'primary' must define api_key or api_key_env",
             validate_config(config),
+        )
+
+    def test_agent_active_profile_and_model_round_trip(self) -> None:
+        data = {
+            "runs_dir": ".madcli/runs",
+            "default_workdir": ".",
+            "runtimes": {
+                "codex": {
+                    "command": "codex",
+                    "credentials": [
+                        {
+                            "name": "primary",
+                            "base_url": "https://one.example/v1",
+                            "api_key_env": "OPENAI_API_KEY_ONE",
+                        },
+                        {
+                            "name": "backup",
+                            "base_url": "https://two.example/v1",
+                            "api_key_env": "OPENAI_API_KEY_TWO",
+                        },
+                    ],
+                }
+            },
+            "agents": {
+                "reviewer": {
+                    "runtime": "codex",
+                    "agent": "reviewer",
+                    "model": "gpt-5-codex",
+                    "active_model": "gpt-5.1-codex",
+                    "active_credential": "backup",
+                    "description": "reviewer",
+                }
+            },
+        }
+
+        config = app_config_from_dict(data)
+        serialized = app_config_to_dict(config)
+
+        self.assertEqual(config.agents["reviewer"].active_model, "gpt-5.1-codex")
+        self.assertEqual(config.agents["reviewer"].active_credential, "backup")
+        self.assertEqual(
+            serialized["agents"]["reviewer"]["active_model"],
+            "gpt-5.1-codex",
+        )
+        self.assertEqual(
+            serialized["agents"]["reviewer"]["active_credential"],
+            "backup",
         )
 
 
