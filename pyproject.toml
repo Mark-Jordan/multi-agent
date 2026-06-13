@@ -9,6 +9,9 @@ description = "CLI wrapper for delegating coding tasks to OpenCode, Codex, and C
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+crewai = ["crewai"]
+
 [project.scripts]
 madcli = "madcli.cli:main"
 

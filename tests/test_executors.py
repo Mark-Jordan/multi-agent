@@ -64,8 +64,9 @@ class ExecutorTests(unittest.TestCase):
     def test_claude_code_command_builder(self) -> None:
         request = self.request_for("claude_engineer")
         command = executor_for("claude_code").build_command(request)
-        self.assertEqual(command[0:2], ["claude", "-p"])
-        self.assertIn("--output-format", command)
+        self.assertEqual(command[0:4], ["claude", "-p", "--agent", "strategy-engineer"])
+        self.assertIn("--model", command)
+        self.assertIn("sonnet", command)
 
     def test_dry_run_does_not_require_binary(self) -> None:
         request = self.request_for("strategy_engineer")

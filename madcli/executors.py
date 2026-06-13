@@ -370,8 +370,6 @@ class ClaudeCodeExecutor(CodingExecutor):
             "-p",
             "--agent",
             request.agent.agent,
-            "--output-format",
-            "stream-json",
         ]
         if request.agent.model:
             command.extend(["--model", request.agent.model])

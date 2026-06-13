@@ -9,7 +9,9 @@
     "build": "tsc --noEmit && vite build",
     "start": "electron .",
     "dist:win": "npm run build && node scripts/package-win-offline.cjs",
-    "dist:win:portable": "npm run build && electron-builder --win portable --x64"
+    "dist:win:portable": "npm run build && electron-builder --win portable --x64",
+    "bundle-python": "node scripts/bundle-python.cjs",
+    "watch:exe": "node scripts/watch-build.cjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

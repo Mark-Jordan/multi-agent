@@ -1,0 +1,55 @@
+{
+  "description": "Diagnose, fix, test, and regression verification for bug fixes",
+  "tasks": [
+    {
+      "id": "diagnose",
+      "agent": "{{engineer_agent}}",
+      "task": "Diagnose the following bug:\n\n{{goal}}\n\nSteps:\n1. Reproduce the bug if possible\n2. Trace the root cause through the code\n3. Identify all affected code paths\n4. Document the diagnosis with evidence",
+      "retry_count": 2,
+      "acceptance_criteria": [
+        "Root cause is clearly identified",
+        "Reproduction steps are documented",
+        "All affected code paths are mapped",
+        "Diagnosis is supported by code evidence"
+      ]
+    },
+    {
+      "id": "fix",
+      "agent": "{{engineer_agent}}",
+      "task": "Fix the bug based on the diagnosis:\n\n{{goal}}\n\nRequirements:\n- Address the root cause, not just symptoms\n- Minimize the change surface\n- Add regression tests that fail without the fix\n- Do NOT introduce new behavior or refactor unrelated code",
+      "depends_on": ["diagnose"],
+      "retry_count": 2,
+      "acceptance_criteria": [
+        "Root cause is addressed, not masked",
+        "Fix is minimal and targeted",
+        "Regression test fails before fix, passes after",
+        "No unrelated changes introduced"
+      ]
+    },
+    {
+      "id": "regression-test",
+      "agent": "{{engineer_agent}}",
+      "task": "Run comprehensive regression tests for the bug fix:\n\n{{goal}}\n\n- Run the full test suite\n- Verify all affected code paths (from diagnosis)\n- Test edge cases around the fix\n- Confirm no new failures introduced",
+      "depends_on": ["fix"],
+      "acceptance_criteria": [
+        "Full test suite passes",
+        "Affected code paths are verified",
+        "Edge cases are tested",
+        "No new test failures"
+      ]
+    },
+    {
+      "id": "review-fix",
+      "agent": "{{reviewer_agent}}",
+      "task": "Review the complete fix for:\n\n{{goal}}\n\nVerify:\n- The fix addresses the root cause\n- Regression tests properly validate the fix\n- No side effects or regressions\n- The fix follows project conventions",
+      "depends_on": ["regression-test"],
+      "review_by": "{{reviewer_agent}}",
+      "acceptance_criteria": [
+        "Fix correctly addresses root cause",
+        "Regression tests are adequate",
+        "No side effects",
+        "Code quality is maintained"
+      ]
+    }
+  ]
+}

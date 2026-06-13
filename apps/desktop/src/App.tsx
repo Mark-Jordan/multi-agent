@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   MessageSquarePlus,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -21,6 +22,7 @@ import {
   TerminalSquare,
   Trash2,
   Wrench,
+  Workflow,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,7 +42,7 @@ import type {
   StartupDiagnostics
 } from "./types";
 
-type SettingsTab = "agents" | "roles" | "profiles" | "runtimes" | "workspace" | "diagnostics";
+type SettingsTab = "agents" | "roles" | "profiles" | "runtimes" | "workspace" | "diagnostics" | "appearance";
 
 const agents: Agent[] = [
   {
@@ -124,6 +126,8 @@ export function App() {
   const [runArtifacts, setRunArtifacts] = useState<Artifact[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [taskText, setTaskText] = useState("");
+  const [autonomousMode, setAutonomousMode] = useState(false);
+  const [workflowBackend, setWorkflowBackend] = useState<"crewai" | "madcli">("crewai");
   const [actionBusy, setActionBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -136,6 +140,12 @@ export function App() {
   const [editorContent, setEditorContent] = useState("");
   const [diagnostics, setDiagnostics] = useState<StartupDiagnostics | null>(null);
   const [setupBusy, setSetupBusy] = useState(false);
+  const [fontSize, setFontSize] = useState<"small" | "medium" | "large">(
+    () => (localStorage.getItem("madcli-font-size") as "small" | "medium" | "large") ?? "medium"
+  );
+  const [colorTheme, setColorTheme] = useState<"dark" | "light">(
+    () => (localStorage.getItem("madcli-theme") as "dark" | "light") ?? "dark"
+  );
   const [roleForm, setRoleForm] = useState<RoleTemplate>({
     id: "reviewer",
     name: "Reviewer",
@@ -323,6 +333,16 @@ export function App() {
     });
   }, [sessionMessages]);
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-font-size", fontSize);
+    localStorage.setItem("madcli-font-size", fontSize);
+  }, [fontSize]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", colorTheme);
+    localStorage.setItem("madcli-theme", colorTheme);
+  }, [colorTheme]);
+
   async function loadSettingsState() {
     if (!window.madcliDesktop) {
       return;
@@ -494,12 +514,19 @@ export function App() {
             activeAgent: activeAgent.id
           })
         ).id;
-      const result = await window.madcliDesktop.runTask({
-        sessionId,
-        task,
-        agent: activeAgent.id,
-        roleId: activeRoleId
-      });
+      const result = autonomousMode
+        ? await window.madcliDesktop.runWorkflow({
+            sessionId,
+            goal: task,
+            plannerAgent: activeAgent.id,
+            backend: workflowBackend
+          })
+        : await window.madcliDesktop.runTask({
+            sessionId,
+            task,
+            agent: activeAgent.id,
+            roleId: activeRoleId
+          });
       setTaskText("");
       await openSession(sessionId);
       if (result.runId) {
@@ -889,16 +916,39 @@ export function App() {
                 })}
               </select>
             </label>
+            {autonomousMode ? (
+              <label>
+                编排后端
+                <select
+                  value={workflowBackend}
+                  onChange={(event) => setWorkflowBackend(event.target.value as "crewai" | "madcli")}
+                >
+                  <option value="crewai">CrewAI</option>
+                  <option value="madcli">madcli plan</option>
+                </select>
+              </label>
+            ) : null}
             <span>
-              {runtimeLabel(activeAgent.runtime)} · {activeInstance?.roleName ?? "默认角色"}
+              {autonomousMode
+                ? `${workflowBackend === "crewai" ? "CrewAI" : "madcli"} · ${activeInstance?.roleName ?? "默认角色"}`
+                : `${runtimeLabel(activeAgent.runtime)} · ${activeInstance?.roleName ?? "默认角色"}`}
             </span>
           </div>
           <textarea
             onChange={(event) => setTaskText(event.target.value)}
-            placeholder="输入任务并发送给当前会话的智能体..."
+            placeholder={autonomousMode ? "输入目标，交给当前身份拆解并自动分派..." : "输入任务并发送给当前会话的智能体..."}
             value={taskText}
           />
           <div className="composer-actions">
+            <button
+              className={autonomousMode ? "toggle active" : "toggle"}
+              onClick={() => setAutonomousMode((enabled) => !enabled)}
+              type="button"
+              title="自动编排"
+            >
+              <Workflow size={16} />
+              自动编排
+            </button>
             <button
               className={editorOpen ? "toggle active" : "toggle"}
               onClick={() => setEditorOpen((open) => !open)}
@@ -1343,6 +1393,49 @@ export function App() {
                   </section>
                 ) : null}
 
+                {settingsTab === "appearance" ? (
+                  <section className="settings-section">
+                    <div className="section-heading">
+                      <h3>字体大小</h3>
+                      <p>调整界面文字大小，即时生效。</p>
+                    </div>
+                    <div className="font-size-options">
+                      {(["small", "medium", "large"] as const).map((size) => (
+                        <button
+                          className={fontSize === size ? "selected" : ""}
+                          key={size}
+                          onClick={() => setFontSize(size)}
+                          type="button"
+                        >
+                          <span className="font-size-label">{fontSizeLabel(size)}</span>
+                          <span className="font-size-desc">{fontSizeDesc(size)}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="section-heading" style={{ marginTop: 12 }}>
+                      <h3>主题</h3>
+                      <p>深色或浅色外观。</p>
+                    </div>
+                    <div className="theme-options">
+                      {(["dark", "light"] as const).map((theme) => (
+                        <button
+                          className={colorTheme === theme ? "selected" : ""}
+                          key={theme}
+                          onClick={() => setColorTheme(theme)}
+                          type="button"
+                        >
+                          <span className="theme-preview" data-theme={theme} />
+                          <span>
+                            <strong>{theme === "dark" ? "深色主题" : "浅色主题"}</strong>
+                            <small>{theme === "dark" ? "暗色配色，适合低光环境" : "明亮配色，适合白天使用"}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
                 {settingsMessage ? <pre className="setup-message">{settingsMessage}</pre> : null}
               </div>
             </section>
@@ -1406,7 +1499,8 @@ const settingsItems: Array<{
   { id: "profiles", label: "模型 Profile", icon: KeyRound },
   { id: "runtimes", label: "运行时", icon: Server },
   { id: "workspace", label: "工作目录", icon: FolderCog },
-  { id: "diagnostics", label: "诊断", icon: Activity }
+  { id: "diagnostics", label: "诊断", icon: Activity },
+  { id: "appearance", label: "外观", icon: Palette }
 ];
 
 function readinessMessage(reason: AgentRunReadiness["reason"], agentLabel: string): string {
@@ -1523,6 +1617,18 @@ function defaultRoleForm(settingsState: SettingsState): RoleTemplate {
       system: false
     }
   );
+}
+
+function fontSizeLabel(size: "small" | "medium" | "large"): string {
+  if (size === "small") return "小";
+  if (size === "large") return "大";
+  return "中";
+}
+
+function fontSizeDesc(size: "small" | "medium" | "large"): string {
+  if (size === "small") return "紧凑间距，适合显示更多内容";
+  if (size === "large") return "宽松显示，更易于阅读";
+  return "默认大小，均衡舒适";
 }
 
 function defaultBaseUrl(runtime: RuntimeName): string {

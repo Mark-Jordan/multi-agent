@@ -115,6 +115,13 @@ export type RunDryRunPayload = {
 
 export type RunTaskPayload = RunDryRunPayload;
 
+export type RunWorkflowPayload = {
+  sessionId: string;
+  goal: string;
+  plannerAgent: string;
+  backend?: "madcli" | "crewai";
+};
+
 export type RoleTemplate = {
   id: string;
   name: string;
@@ -200,6 +207,7 @@ declare global {
       runStatus: () => Promise<CommandResult>;
       runTask: (payload: RunTaskPayload) => Promise<CommandResult>;
       runDryRun: (payload: RunDryRunPayload) => Promise<CommandResult>;
+      runWorkflow: (payload: RunWorkflowPayload) => Promise<CommandResult>;
       listArtifacts: (runId: string) => Promise<Artifact[]>;
       readArtifact: (payload: {
         runId: string;

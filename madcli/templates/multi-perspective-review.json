@@ -1,0 +1,62 @@
+{
+  "description": "Multiple agents review in parallel, then synthesize findings",
+  "tasks": [
+    {
+      "id": "implement",
+      "agent": "{{engineer_agent}}",
+      "task": "Implement the following:\n\n{{goal}}",
+      "retry_count": 2,
+      "acceptance_criteria": [
+        "Implementation is complete and functional",
+        "Basic tests are included"
+      ]
+    },
+    {
+      "id": "security-review",
+      "agent": "{{reviewer_agent}}",
+      "task": "Review the implementation for security vulnerabilities:\n\n{{goal}}\n\nFocus on:\n- Input validation and sanitization\n- Authentication and authorization\n- Data exposure risks\n- Dependency vulnerabilities\n- Injection attacks (SQL, command, etc.)",
+      "depends_on": ["implement"],
+      "acceptance_criteria": [
+        "No OWASP Top 10 vulnerabilities",
+        "Input validation is comprehensive",
+        "No secrets or credentials exposed"
+      ]
+    },
+    {
+      "id": "performance-review",
+      "agent": "{{reviewer_agent}}",
+      "task": "Review the implementation for performance issues:\n\n{{goal}}\n\nFocus on:\n- Algorithmic complexity\n- Memory usage patterns\n- Database query efficiency\n- Network call optimization\n- Caching opportunities",
+      "depends_on": ["implement"],
+      "acceptance_criteria": [
+        "No O(n^2) or worse algorithms on large inputs",
+        "Memory usage is reasonable",
+        "Database queries are optimized",
+        "Unnecessary network calls eliminated"
+      ]
+    },
+    {
+      "id": "code-quality-review",
+      "agent": "{{reviewer_agent}}",
+      "task": "Review the implementation for code quality:\n\n{{goal}}\n\nFocus on:\n- Readability and naming\n- SOLID principles adherence\n- Error handling patterns\n- Test coverage and quality\n- Documentation completeness",
+      "depends_on": ["implement"],
+      "acceptance_criteria": [
+        "Code is readable and well-named",
+        "Error handling is comprehensive",
+        "Tests are meaningful, not just coverage",
+        "Documentation is adequate"
+      ]
+    },
+    {
+      "id": "synthesize",
+      "agent": "{{planner_agent}}",
+      "task": "Synthesize the three review findings (security, performance, code-quality) for:\n\n{{goal}}\n\nProduce a final report that:\n- Prioritizes findings by severity\n- Resolves any conflicting recommendations\n- Creates an actionable improvement list\n- Identifies which issues are blocking vs. advisory",
+      "depends_on": ["security-review", "performance-review", "code-quality-review"],
+      "acceptance_criteria": [
+        "All review findings are consolidated",
+        "Conflicts between reviewers are resolved",
+        "Priorities are assigned to each finding",
+        "Blocking vs. advisory issues are clearly separated"
+      ]
+    }
+  ]
+}

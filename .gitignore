@@ -12,3 +12,7 @@ node_modules/
 dist/
 .vite-dev*.log
 apps/desktop/release/
+.claude/
+claude-conf-settings.json
+multi_agent_dev_cli.egg-info/
+apps/desktop/vendor/

@@ -1,0 +1,51 @@
+{
+  "description": "Research, plan, implement, and verify for technical exploration",
+  "tasks": [
+    {
+      "id": "research",
+      "agent": "{{research_agent}}",
+      "task": "Research the following topic thoroughly:\n\n{{goal}}\n\nInvestigate existing solutions, trade-offs, and best practices. Produce a research summary with:\n- Key findings and alternatives considered\n- Recommended approach with rationale\n- Potential risks and mitigations\n- References to relevant documentation or prior art",
+      "retry_count": 1,
+      "acceptance_criteria": [
+        "At least 3 alternatives were evaluated",
+        "Recommendation includes concrete trade-off analysis",
+        "Risks are identified with mitigation strategies"
+      ]
+    },
+    {
+      "id": "plan",
+      "agent": "{{planner_agent}}",
+      "task": "Create an implementation plan based on the research findings for:\n\n{{goal}}\n\nBreak the work into concrete, ordered steps. For each step include:\n- What to implement\n- Which files to create or modify\n- Testing strategy\n- Dependencies between steps",
+      "depends_on": ["research"],
+      "acceptance_criteria": [
+        "Plan covers all aspects of the research recommendation",
+        "Steps are concrete and actionable",
+        "Dependencies are correctly identified",
+        "Testing strategy is included for each step"
+      ]
+    },
+    {
+      "id": "implement",
+      "agent": "{{engineer_agent}}",
+      "task": "Implement the solution according to the approved plan for:\n\n{{goal}}",
+      "depends_on": ["plan"],
+      "retry_count": 2,
+      "acceptance_criteria": [
+        "Implementation matches the plan",
+        "All tests pass",
+        "No regressions introduced"
+      ]
+    },
+    {
+      "id": "verify",
+      "agent": "{{reviewer_agent}}",
+      "task": "Verify the implementation against the research and plan for:\n\n{{goal}}\n\nConfirm that:\n- The implementation follows the planned approach\n- All acceptance criteria from research and plan are met\n- No unintended side effects were introduced",
+      "depends_on": ["implement"],
+      "acceptance_criteria": [
+        "Implementation matches research recommendations",
+        "All plan steps were completed",
+        "No regressions detected"
+      ]
+    }
+  ]
+}

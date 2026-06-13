@@ -1,0 +1,52 @@
+{
+  "description": "Refactor, test, review, with rollback plan",
+  "tasks": [
+    {
+      "id": "analyze",
+      "agent": "{{engineer_agent}}",
+      "task": "Analyze the code that needs refactoring for:\n\n{{goal}}\n\nIdentify:\n- Current structure and dependencies\n- Coupling points and anti-patterns\n- Test coverage gaps\n- Performance bottlenecks",
+      "acceptance_criteria": [
+        "All dependencies are mapped",
+        "Test coverage gaps are documented",
+        "Refactoring targets are clearly identified"
+      ]
+    },
+    {
+      "id": "refactor",
+      "agent": "{{engineer_agent}}",
+      "task": "Refactor the code as described:\n\n{{goal}}\n\nRequirements:\n- Preserve all existing behavior\n- Improve code structure and readability\n- Do NOT change public APIs without explicit approval\n- Keep changes incremental and reviewable",
+      "depends_on": ["analyze"],
+      "retry_count": 2,
+      "acceptance_criteria": [
+        "All existing tests pass unchanged",
+        "No public API changed without approval",
+        "Code complexity is measurably reduced",
+        "Changes are incremental and atomic"
+      ]
+    },
+    {
+      "id": "test",
+      "agent": "{{engineer_agent}}",
+      "task": "Add or update tests for the refactored code:\n\n{{goal}}\n\n- Fill test coverage gaps identified in the analysis phase\n- Add regression tests for any edge cases discovered\n- Ensure all tests (old and new) pass",
+      "depends_on": ["refactor"],
+      "acceptance_criteria": [
+        "Test coverage meets or exceeds pre-refactor levels",
+        "Regression tests cover discovered edge cases",
+        "All tests pass"
+      ]
+    },
+    {
+      "id": "review",
+      "agent": "{{reviewer_agent}}",
+      "task": "Review the complete refactoring for:\n\n{{goal}}\n\nVerify:\n- Behavior is preserved\n- Tests are adequate\n- No performance regressions\n- Code is cleaner than before",
+      "depends_on": ["test"],
+      "review_by": "{{reviewer_agent}}",
+      "acceptance_criteria": [
+        "All behavior is preserved",
+        "Test coverage is adequate",
+        "Code quality has improved",
+        "No performance regression"
+      ]
+    }
+  ]
+}

@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("madcliDesktop", {
   runStatus: () => ipcRenderer.invoke("madcli:status"),
   runTask: (payload) => ipcRenderer.invoke("madcli:runTask", payload),
   runDryRun: (payload) => ipcRenderer.invoke("madcli:runDryRun", payload),
+  runWorkflow: (payload) => ipcRenderer.invoke("madcli:runWorkflow", payload),
   listArtifacts: (runId) => ipcRenderer.invoke("artifacts:list", runId),
   readArtifact: (payload) => ipcRenderer.invoke("artifacts:read", payload)
 });

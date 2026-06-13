@@ -1,0 +1,30 @@
+{
+  "description": "Standard implement-then-review workflow with acceptance criteria",
+  "tasks": [
+    {
+      "id": "implement",
+      "agent": "{{engineer_agent}}",
+      "task": "Implement the following feature in {{repo}}:\n\n{{goal}}\n\nWrite production-quality code with proper error handling and type annotations.",
+      "retry_count": 2,
+      "acceptance_criteria": [
+        "Code compiles/runs without errors",
+        "All existing tests continue to pass",
+        "New functionality is covered by tests",
+        "Code follows project conventions"
+      ]
+    },
+    {
+      "id": "review",
+      "agent": "{{reviewer_agent}}",
+      "task": "Review the implementation of: {{goal}}\n\nCheck for correctness, regressions, security issues, and code quality.",
+      "depends_on": ["implement"],
+      "review_by": "{{reviewer_agent}}",
+      "acceptance_criteria": [
+        "No logical errors or edge-case bugs",
+        "No security vulnerabilities introduced",
+        "Code is readable and maintainable",
+        "Tests adequately cover the change"
+      ]
+    }
+  ]
+}

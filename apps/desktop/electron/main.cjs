@@ -98,6 +98,9 @@ function registerIpcHandlers(services) {
   ipcMain.handle("madcli:runDryRun", async (_event, payload) =>
     services.runDryRun(payload)
   );
+  ipcMain.handle("madcli:runWorkflow", async (_event, payload) =>
+    services.runWorkflow(payload)
+  );
   ipcMain.handle("artifacts:list", async (_event, runId) =>
     services.listArtifacts(runId)
   );
@@ -119,12 +122,17 @@ function getDefaultProjectRoot() {
 
 function createDesktopServices(options = {}) {
   const appDir = options.appDir || app.getPath("userData");
+  const packagedAppRoot = path.resolve(options.appRoot || path.resolve(__dirname, ".."));
+  const resourcesRoot = path.resolve(
+    options.resourcesRoot || path.resolve(packagedAppRoot, "..")
+  );
   const projectRoot = path.resolve(options.projectRoot || getDefaultProjectRoot());
   const runCommand = options.runCommand || runProcess;
   const existsCommand = options.commandExists || commandExists;
   const chooseDirectory = options.chooseDirectory || chooseDirectoryWithDialog;
   const configPath = path.join(appDir, "madcli.config.json");
   const sessionsDir = path.join(appDir, "sessions");
+  const pythonExecutable = resolvePythonExecutable(resourcesRoot);
 
   function readDesktopConfig() {
     let config;
@@ -157,10 +165,11 @@ function createDesktopServices(options = {}) {
 
   async function runMadcli(args, streamHandlers = {}) {
     ensureDesktopConfig();
-    return runCommand("python", ["-m", "madcli", "--config", configPath, ...args], {
+    return runCommand(pythonExecutable, ["-m", "madcli", "--config", configPath, ...args], {
       cwd: projectRoot,
       env: {
         ...process.env,
+        PYTHONPATH: buildPythonPath(packagedAppRoot, process.env.PYTHONPATH),
         PYTHONUTF8: "1",
         PYTHONIOENCODING: "utf-8"
       },
@@ -499,6 +508,80 @@ function createDesktopServices(options = {}) {
       }
       return { ...result, runId };
     },
+    async runWorkflow(payload = {}) {
+      const goal = String(payload.goal || "").trim();
+      const plannerAgent = String(payload.plannerAgent || "codex_reviewer").trim();
+      const backend = String(payload.backend || "madcli").trim();
+      const sessionId = String(payload.sessionId || "");
+      if (!goal) {
+        throw new Error("goal is required");
+      }
+      if (!plannerAgent) {
+        throw new Error("plannerAgent is required");
+      }
+      const commandArgs =
+        backend === "crewai"
+          ? [
+              "workflow",
+              "run",
+              goal,
+              "--backend",
+              "crewai",
+              "--manager-agent",
+              plannerAgent
+            ]
+          : [
+              "workflow",
+              "run",
+              goal,
+              "--planner-agent",
+              plannerAgent
+            ];
+      let statusMessageId = null;
+      if (sessionId) {
+        appendSessionMessage(sessionsDir, sessionId, {
+          role: "user",
+          content: goal
+        });
+        statusMessageId = appendSessionMessage(sessionsDir, sessionId, {
+          role: "agent",
+          content: "自动编排运行中。",
+          agent_name: plannerAgent,
+          runtime: null,
+          run_id: null,
+          status: "running"
+        });
+      }
+      void runMadcli(commandArgs)
+        .then((result) => {
+          const workflowId = parseCliValue(result.stdout, "workflow_id");
+          if (sessionId && statusMessageId) {
+            updateSessionMessage(sessionsDir, sessionId, statusMessageId, {
+              content:
+                result.ok && workflowId
+                  ? `自动编排完成：${workflowId}`
+                  : formatFailedRunMessage(workflowId, result),
+              status: result.ok ? "succeeded" : "failed"
+            });
+          }
+        })
+        .catch((error) => {
+          if (sessionId && statusMessageId) {
+            updateSessionMessage(sessionsDir, sessionId, statusMessageId, {
+              content: error instanceof Error ? error.message : String(error),
+              status: "failed"
+            });
+          }
+        });
+      return {
+        ok: true,
+        code: null,
+        stdout: "",
+        stderr: "",
+        runId: null,
+        title: "自动编排已提交"
+      };
+    },
     async listArtifacts(runId) {
       const runDir = getRunDir(readDesktopConfig(), projectRoot, String(runId));
       return artifactFiles
@@ -511,6 +594,28 @@ function createDesktopServices(options = {}) {
       return { path: String(artifactPath), content };
     }
   };
+}
+
+function resolvePythonExecutable(resourcesRoot) {
+  const candidates = [
+    path.join(resourcesRoot, "python", "python.exe"),
+    path.join(resourcesRoot, "python", "Scripts", "python.exe")
+  ];
+  if (process.platform === "win32") {
+    const bundledPython = candidates.find((candidate) => fs.existsSync(candidate));
+    if (bundledPython) {
+      return bundledPython;
+    }
+  }
+  return process.env.MADCLI_PYTHON || "python";
+}
+
+function buildPythonPath(packagedAppRoot, existingPythonPath = "") {
+  const entries = [packagedAppRoot];
+  if (existingPythonPath) {
+    entries.push(existingPythonPath);
+  }
+  return entries.join(path.delimiter);
 }
 
 function findProjectRoot(startDirs) {
@@ -811,6 +916,13 @@ function extractGetContentTarget(command) {
 
 function isImportantErrorLine(line) {
   if (/^(ERROR|Error|Traceback|FileNotFoundError|UnicodeDecodeError|Exception in thread)/.test(line)) {
+    return true;
+  }
+  if (
+    /^(CrewAI is not installed|config not found:|run: python -m madcli init|invalid CrewAI workflow:|unknown manager agent:|workflow run requires|dry-run workflows require|CrewAI backend does not support)/i.test(
+      line
+    )
+  ) {
     return true;
   }
   if (/Cannot find path|Exit code:\s*[1-9]\d*|exited\s+[1-9]\d*|timed out/i.test(line)) {

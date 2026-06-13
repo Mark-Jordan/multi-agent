@@ -73,6 +73,44 @@ test("createDesktopServices creates and loads sessions", async () => {
   }
 });
 
+test("desktop services prefer bundled Python and packaged madcli sources", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "madcli-bundled-python-"));
+  try {
+    const resourcesRoot = path.join(tempDir, "resources");
+    const appRoot = path.join(resourcesRoot, "app");
+    const bundledPython = path.join(resourcesRoot, "python", "python.exe");
+    fs.mkdirSync(path.dirname(bundledPython), { recursive: true });
+    fs.mkdirSync(path.join(appRoot, "madcli"), { recursive: true });
+    fs.writeFileSync(bundledPython, "", "utf8");
+    fs.writeFileSync(path.join(appRoot, "madcli", "cli.py"), "", "utf8");
+
+    let capturedExecutable = "";
+    let capturedArgs = [];
+    let capturedOptions = {};
+    const services = createDesktopServices({
+      appDir: tempDir,
+      projectRoot: tempDir,
+      resourcesRoot,
+      appRoot,
+      runCommand: async (executable, args, options) => {
+        capturedExecutable = executable;
+        capturedArgs = args;
+        capturedOptions = options;
+        return { ok: true, code: 0, stdout: "doctor ok", stderr: "" };
+      },
+      commandExists: () => true
+    });
+
+    await services.runDoctor();
+
+    assert.equal(capturedExecutable, bundledPython);
+    assert.deepEqual(capturedArgs.slice(0, 2), ["-m", "madcli"]);
+    assert.ok(capturedOptions.env.PYTHONPATH.split(path.delimiter).includes(appRoot));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("deleteSession removes stored session and returns remaining sessions", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "madcli-delete-session-"));
   try {
@@ -575,6 +613,157 @@ test("runTask enqueues immediately without waiting for the runtime process", asy
     assert.equal(completed.messages[1].runId, "real-run");
     assert.match(completed.messages[1].content, /运行完成/);
     assert.doesNotMatch(completed.messages[1].content, /command:/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runWorkflow enqueues autonomous workflow through planner agent", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "madcli-workflow-run-"));
+  try {
+    let capturedArgs = [];
+    let finishRun;
+    const services = createDesktopServices({
+      appDir: tempDir,
+      projectRoot: tempDir,
+      runCommand: async (_executable, args) => {
+        capturedArgs = args;
+        return new Promise((resolve) => {
+          finishRun = () =>
+            resolve({
+              ok: true,
+              code: 0,
+              stdout: "workflow_id: wf-1\nstatus: succeeded\nworkflow_dir: .madcli/workflows/wf-1\n",
+              stderr: ""
+            });
+        });
+      },
+      commandExists: () => true
+    });
+    await services.saveCredentialProfile({
+      runtime: "codex",
+      agentId: "codex_reviewer",
+      profileName: "primary",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "sk-test-key",
+      model: "gpt-5-codex"
+    });
+    const session = await services.createSession({
+      title: "Workflow",
+      activeAgent: "codex_reviewer"
+    });
+
+    const result = await services.runWorkflow({
+      sessionId: session.id,
+      goal: "build autonomous orchestration",
+      plannerAgent: "codex_reviewer",
+      backend: "madcli"
+    });
+    const queued = await services.loadSession(session.id);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(capturedArgs.slice(-5), [
+      "workflow",
+      "run",
+      "build autonomous orchestration",
+      "--planner-agent",
+      "codex_reviewer"
+    ]);
+    assert.equal(queued.messages[0].content, "build autonomous orchestration");
+    assert.equal(queued.messages[1].status, "running");
+    assert.equal(queued.messages[1].content, "自动编排运行中。");
+
+    finishRun();
+    await waitFor(() => services.loadSession(session.id), (loaded) => {
+      return loaded.messages[1].status === "succeeded";
+    });
+    const completed = await services.loadSession(session.id);
+    assert.match(completed.messages[1].content, /自动编排完成：wf-1/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runWorkflow can launch CrewAI backend with manager agent", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "madcli-crewai-workflow-run-"));
+  try {
+    let capturedArgs = [];
+    const services = createDesktopServices({
+      appDir: tempDir,
+      projectRoot: tempDir,
+      runCommand: async (_executable, args) => {
+        capturedArgs = args;
+        return {
+          ok: true,
+          code: 0,
+          stdout: "workflow_id: crew-wf\nstatus: succeeded\nworkflow_dir: .madcli/workflows/crew-wf\n",
+          stderr: ""
+        };
+      },
+      commandExists: () => true
+    });
+    const session = await services.createSession({
+      title: "CrewAI Workflow",
+      activeAgent: "codex_reviewer"
+    });
+
+    await services.runWorkflow({
+      sessionId: session.id,
+      goal: "coordinate crew",
+      plannerAgent: "codex_reviewer",
+      backend: "crewai"
+    });
+
+    assert.deepEqual(capturedArgs.slice(-7), [
+      "workflow",
+      "run",
+      "coordinate crew",
+      "--backend",
+      "crewai",
+      "--manager-agent",
+      "codex_reviewer"
+    ]);
+    await waitFor(() => services.loadSession(session.id), (loaded) => {
+      return loaded.messages[1].status === "succeeded";
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runWorkflow shows actionable CrewAI backend failures", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "madcli-crewai-workflow-fail-"));
+  try {
+    const services = createDesktopServices({
+      appDir: tempDir,
+      projectRoot: tempDir,
+      runCommand: async () => ({
+        ok: false,
+        code: 1,
+        stdout: "",
+        stderr:
+          'CrewAI is not installed. Install it with: python -m pip install "multi-agent-dev-cli[crewai]"\n'
+      }),
+      commandExists: () => true
+    });
+    const session = await services.createSession({
+      title: "CrewAI Workflow",
+      activeAgent: "codex_reviewer"
+    });
+
+    await services.runWorkflow({
+      sessionId: session.id,
+      goal: "coordinate crew",
+      plannerAgent: "codex_reviewer",
+      backend: "crewai"
+    });
+
+    await waitFor(() => services.loadSession(session.id), (loaded) => {
+      return loaded.messages[1].status === "failed";
+    });
+    const completed = await services.loadSession(session.id);
+    assert.match(completed.messages[1].content, /CrewAI is not installed/);
+    assert.doesNotMatch(completed.messages[1].content, /未完成，未产生可展示的摘要/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

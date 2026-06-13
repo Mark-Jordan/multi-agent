@@ -11,7 +11,7 @@ Research manager / human operator
     -> OpenCode / Codex / Claude Code
 ```
 
-The first version is intentionally small. It does not implement its own LLM agent, code editor, shell sandbox, or multi-agent planner. It wraps existing coding runtimes behind one config and one CLI.
+The core CLI stays intentionally small. It does not replace coding runtimes with its own editor or shell sandbox. It wraps existing coding runtimes behind one config and one CLI, and now includes a workflow layer that can delegate planned tasks across configured agents.
 
 ## Current Status
 
@@ -23,19 +23,24 @@ Implemented:
 - Runtime credential profiles with API key and base URL pairs.
 - Ordered fallback credentials for Codex and Claude Code execution.
 - Durable run storage under `.madcli/runs/<run-id>/`.
+- Durable workflow storage under `.madcli/workflows/<workflow-id>/`.
 - Context package generation for each task.
 - Existing markdown context files can be attached with repeatable `--context-file`.
+- Sequential autonomous workflows from a JSON plan, including worker-to-reviewer handoff.
+- Planner-agent workflows where a configured agent first returns a JSON task plan.
+- CrewAI hierarchical workflow backend with madcli task/artifact tools.
+- Optional CrewAI adapter tools for embedding madcli runs in external CrewAI flows.
 - Agent configs can store active credential/model selections so the next run uses changed URL, API key source, and model without restarting.
 - Desktop app skeleton under `apps/desktop` with sessions, Codex-like messages, multi-agent labels, project files, and a hidden code editor drawer.
-- Commands: `init`, `doctor`, `run`, `status`, `logs`, `credentials`.
+- Commands: `init`, `doctor`, `run`, `workflow`, `status`, `logs`, `credentials`.
 - Unit tests for config, context package generation, run storage, project files, sessions, CLI behavior, and executor command construction.
 
 Not implemented yet:
 
-- CrewAI integration.
+- CrewAI Flow state-machine backend.
 - Fully wired desktop backend API and streaming execution.
 - Backtest tools.
-- Parallel engineer coordination.
+- Parallel write-capable engineer coordination.
 - Git worktree isolation.
 - Runtime SDK integrations.
 - Provider adapters for direct model APIs.
@@ -58,6 +63,12 @@ python -m pip install -e .
 madcli --help
 ```
 
+Optional CrewAI tool adapter support:
+
+```bash
+python -m pip install -e ".[crewai]"
+```
+
 ## Quick Start
 
 Create a config:
@@ -77,6 +88,20 @@ Create a dry-run task without invoking a real coding runtime:
 ```bash
 python -m madcli run "Implement a simple mean reversion strategy" --agent strategy_engineer --dry-run
 ```
+
+Create a workflow dry-run from an explicit plan:
+
+```bash
+python -m madcli workflow run "Implement and review feature X" --plan-file workflow-plan.json --dry-run
+```
+
+Run an autonomous workflow where a configured planner agent first returns the task plan:
+
+```bash
+python -m madcli workflow run "Implement and review feature X" --planner-agent codex_reviewer
+```
+
+Use `--plan-file` for workflow dry-runs. A planner agent must execute to produce JSON, so `--planner-agent --dry-run` is rejected.
 
 List runs:
 
@@ -247,9 +272,90 @@ Each `run` creates:
     attempts.json
     stdout.txt
     stderr.txt
+    result.md
 ```
 
 The context package is the source of truth for handoff from a manager agent to a coding runtime. Important requirements should be written into context files, not assumed to exist in hidden chat history.
+
+## Autonomous Workflows
+
+`madcli workflow` adds a deterministic orchestration layer above single-agent runs. It stores workflow state separately from run state and keeps every agent handoff durable.
+
+Workflow artifacts:
+
+```text
+.madcli/workflows/<workflow-id>/
+  workflow.json
+  events.jsonl
+  tasks/
+    <task-id>.json
+  handoffs/
+```
+
+Plan file shape:
+
+```json
+{
+  "tasks": [
+    {
+      "id": "build-feature",
+      "agent": "strategy_engineer",
+      "task": "Implement the feature with tests.",
+      "depends_on": [],
+      "review_by": "codex_reviewer"
+    }
+  ]
+}
+```
+
+Run from a plan:
+
+```bash
+python -m madcli workflow run "Build feature" --plan-file workflow-plan.json
+```
+
+Dry-run worker and reviewer commands from a plan:
+
+```bash
+python -m madcli workflow run "Build feature" --plan-file workflow-plan.json --dry-run
+```
+
+Run with an agent acting as Commander/Planner:
+
+```bash
+python -m madcli workflow run "Build feature" --planner-agent codex_reviewer
+```
+
+When `--planner-agent` is used, the planner agent is invoked first and must return JSON containing a `tasks` array. The resulting workflow then runs tasks sequentially. If a task defines `review_by`, `madcli` automatically starts a reviewer run and attaches the worker's `outputs/result.md`, `stdout.txt`, and `stderr.txt` as context files.
+
+Workflow dry-runs require `--plan-file`; planner-agent workflows need a real planner run to create the plan.
+
+Run with CrewAI hierarchical orchestration:
+
+```bash
+python -m madcli workflow run "Build feature" --backend crewai --manager-agent codex_reviewer
+```
+
+The CrewAI backend builds a hierarchical Crew with a manager agent and a madcli dispatcher agent. The dispatcher owns two tools: one to run configured madcli agents and one to read run artifacts. CrewAI decides delegation and review flow through those tools, while madcli stores the workflow and delegated run events.
+
+Inspect workflows:
+
+```bash
+python -m madcli workflow status
+python -m madcli workflow status <workflow-id>
+python -m madcli workflow logs <workflow-id>
+```
+
+### CrewAI Role
+
+CrewAI is the optional higher-level orchestration engine. In this project, CrewAI owns planning, delegation policy, review routing, and retry/continue decisions when `--backend crewai` is used. `madcli` remains the execution bridge that creates context packages, calls Codex/Claude Code/OpenCode, and stores artifacts.
+
+The optional `madcli.crewai_adapter` module exposes CrewAI tool factories:
+
+- `build_run_agent_task_tool(config)`: dispatches a concrete task to a configured madcli agent.
+- `build_read_run_artifact_tool(config)`: reads a safe artifact from a previous madcli run.
+
+This keeps CrewAI integration explicit and avoids making CrewAI a hard dependency for normal CLI use.
 
 ## Commands
 
@@ -324,6 +430,16 @@ Print logs:
 python -m madcli logs <run-id>
 ```
 
+Workflow commands:
+
+```bash
+python -m madcli workflow run "goal" --plan-file workflow-plan.json
+python -m madcli workflow run "goal" --planner-agent codex_reviewer
+python -m madcli workflow run "goal" --backend crewai --manager-agent codex_reviewer
+python -m madcli workflow status
+python -m madcli workflow logs <workflow-id>
+```
+
 ## Runtime Notes
 
 The first version uses CLI wrappers:
@@ -364,6 +480,7 @@ The current shell is an Electron/React workbench with:
 - Session list and Codex-like conversation stream.
 - Distinct visual identity for `strategy_engineer`, `codex_reviewer`, and `claude_engineer`.
 - Agent, model, and credential profile controls.
+- Composer-level automatic orchestration mode that submits the prompt as a workflow goal through the selected planner identity.
 - Project file panel and run artifact list.
 - Code editor drawer hidden by default and expandable from the composer.
 - Startup setup panel for missing model API profiles.
@@ -382,7 +499,7 @@ python -m unittest discover -s tests -v
 Expected result:
 
 ```text
-Ran 30 tests
+Ran <N> tests
 OK
 ```
 
@@ -393,7 +510,7 @@ Planned next steps:
 1. Add stronger credential failure classification per runtime instead of the current broad stderr/stdout marker matching.
 2. Add explicit git worktree isolation for coding runs.
 3. Add structured `result.json` output parsing for each runtime.
-4. Add a CrewAI tool that calls `madcli run` and reads run artifacts.
+4. Add CrewAI Flow state-machine backend for workflows that need deterministic state transitions around Crew execution.
 5. Add backtest and experiment registry tools for quant research workflows.
 6. Wire the desktop UI to a local API and WebSocket run streaming.
 7. Add a lightweight browser-hosted web UI after desktop workflows stabilize.
